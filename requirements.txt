@@ -1,0 +1,4 @@
+gymnasium==1.2.2
+mlagents_envs==1.2.0.dev0
+numpy==1.23.5
+stable_baselines3==2.7.0
