@@ -65,8 +65,8 @@ public class agent : Agent
         _timeInWall = 0f;
         _renderer.material.color = Color.blue;
 
-        // Regenerate maze every 100 episodes for better generalization
-        if (_maze != null && _currentEpisode % 100 == 0)
+        // Regenerate maze every 500 episodes for better generalization
+        if (_maze != null && _currentEpisode % 250 == 0)
         {
             Debug.Log($"Regenerating maze at episode {_currentEpisode}");
             _maze.RegenerateMaze();
@@ -87,17 +87,11 @@ public class agent : Agent
             transform.position = agentPosition;
             transform.localRotation = Quaternion.identity;
 
-            Vector3 goalPosition;
-            int maxAttempts = 100;
-            int attempts = 0;
-
-            do
-            {
-                goalPosition = _maze.GetRandomEmptyPosition();
-                attempts++;
-            } while (Vector3.Distance(agentPosition, goalPosition) < 2f && attempts < maxAttempts);
-
+            // Spawn goal at the farthest position from agent for maximum challenge
+            Vector3 goalPosition = _maze.GetFarthestEmptyPosition(agentPosition);
             _goal.position = goalPosition;
+            
+            Debug.Log($"Agent spawned at {agentPosition}, Goal at {goalPosition}, Distance: {Vector3.Distance(agentPosition, goalPosition):F1}");
             return;
         }
 
@@ -243,23 +237,23 @@ public class agent : Agent
             // 1. Goal Reached
             if (_hasReachedGoal)
             {
-                stepReward += 1.0f;
+                stepReward += 5.0f;  // Matches Python: reward_goal_reached
             }
 
             // 2. Distance Improvement
             float distanceDelta = _previousDistanceToGoal - currentDistance;
-            stepReward += distanceDelta * 0.01f;
+            stepReward += distanceDelta * 0.01f;  // Matches Python: reward_distance_improvement
 
             // 3. Wall Collision
             if (_hasHitWall)
             {
-                stepReward += -0.15f;
-                stepReward += _timeInWall * -0.01f;
+                stepReward += -0.05f;  // Matches Python: reward_wall_collision
+                stepReward += _timeInWall * -0.005f;  // Matches Python: reward_wall_time_penalty
             }
 
             // 4. Time Penalty
-            float maxSteps = MaxStep > 0 ? MaxStep : 1000f;
-            stepReward += -2.0f / maxSteps;
+            float maxSteps = MaxStep > 0 ? MaxStep : 5000f;  // Updated default
+            stepReward += -2.0f / maxSteps;  // Matches Python: reward_time_penalty
 
             _cumulativeReward += stepReward;
         }

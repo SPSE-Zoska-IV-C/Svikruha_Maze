@@ -14,8 +14,7 @@ from gymnasium import spaces
 from mlagents_envs.base_env import ActionTuple
 from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.exception import UnityTimeOutException
-from mlagents_envs.side_channel.engine_configuration_channel import \
-    EngineConfigurationChannel
+from mlagents_envs.side_channel.engine_configuration_channel import EngineConfigurationChannel
 
 
 class UnityMazeGymWrapper(gym.Env):
@@ -99,9 +98,7 @@ class UnityMazeGymWrapper(gym.Env):
 
         # Define action space (discrete: 0=nothing, 1=forward, 2=left, 3=right)
         if self.spec.action_spec.discrete_size > 0:
-            self.action_space = spaces.Discrete(
-                self.spec.action_spec.discrete_branches[0]
-            )
+            self.action_space = spaces.Discrete(self.spec.action_spec.discrete_branches[0])
         else:
             raise ValueError("Expected discrete action space!")
 
@@ -122,13 +119,9 @@ class UnityMazeGymWrapper(gym.Env):
         self.previous_obs = None
 
         # Reward parameters (can be adjusted)
-        self.reward_goal_reached = 1.0
-        self.reward_distance_improvement = (
-            0.001  # Reduced for maze: prevents local optima
-        )
-        self.reward_wall_collision = -0.15
-        self.reward_wall_time_penalty = -0.01
-        self.reward_time_penalty = -2.0 / self.max_steps
+        self.reward_goal_reached = 5.0  # Reward for reaching goal
+        self.reward_wall_collision = -3.0  # Strong penalty for wall collision (ends episode)
+        self.reward_time_penalty = -5.0 / self.max_steps
 
     def reset(self, seed=None, options=None):
         """Reset the environment and return initial observation."""
@@ -136,32 +129,21 @@ class UnityMazeGymWrapper(gym.Env):
 
         if seed is not None:
             np.random.seed(seed)
-            # Note: Unity ML-Agents doesn't support seed propagation directly
-            # The seed mainly affects Python-side randomness
 
-        # Try to get steps from running environment first (avoids double reset)
-        needs_reset = True
-        try:
-            decision_steps, terminal_steps = self.unity_env.get_steps(self.behavior_name)
-            if len(decision_steps) > 0:
-                needs_reset = False
-        except:
-            needs_reset = True
-
-        if needs_reset:
-            # Reset Unity environment with retry logic
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    self.unity_env.reset()
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise RuntimeError(
-                            f"Failed to reset Unity environment after {max_retries} attempts: {e}"
-                        )
-                    # Wait a bit before retrying
-                    time.sleep(0.1)
+        # OPRAVA: Vždy resetujeme Unity, aby sa _currentStep vynuloval
+        # Reset Unity environment with retry logic
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self.unity_env.reset()
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise RuntimeError(
+                        f"Failed to reset Unity environment after {max_retries} attempts: {e}"
+                    )
+                # Wait a bit before retrying
+                time.sleep(0.1)
 
         # Get initial observation with retry logic
         decision_steps, terminal_steps = self.unity_env.get_steps(self.behavior_name)
@@ -171,9 +153,7 @@ class UnityMazeGymWrapper(gym.Env):
         elif len(terminal_steps) > 0:
             # Agent terminated immediately, reset again
             self.unity_env.reset()
-            decision_steps, terminal_steps = self.unity_env.get_steps(
-                self.behavior_name
-            )
+            decision_steps, terminal_steps = self.unity_env.get_steps(self.behavior_name)
             if len(decision_steps) > 0:
                 obs = decision_steps.obs[0][0]
             else:
@@ -192,9 +172,7 @@ class UnityMazeGymWrapper(gym.Env):
         """Execute action and return observation, reward, done, info."""
         # Validate action
         if not self.action_space.contains(action):
-            raise ValueError(
-                f"Invalid action {action}. Action must be in {self.action_space}"
-            )
+            raise ValueError(f"Invalid action {action}. Action must be in {self.action_space}")
 
         # Convert action to Unity format (ML-Agents 4.x compatible)
         discrete_actions = np.array([[action]], dtype=np.int32)
@@ -241,6 +219,10 @@ class UnityMazeGymWrapper(gym.Env):
             terminated = False
             truncated = max_steps_reached
 
+            # Check for wall collision - terminate episode if agent hits wall
+            if len(obs) > 4 and obs[4] > 0.5:  # has_hit_wall
+                terminated = True
+
         else:
             # No agents found (shouldn't happen)
             raise RuntimeError("No agents found in environment!")
@@ -278,13 +260,11 @@ class UnityMazeGymWrapper(gym.Env):
         """
         Calculate reward based on observations.
 
-        This implements the reward logic that was previously in Unity agent.cs:
-        - Goal reached: +1.0
-        - Distance improvement: +0.01 per unit closer
-        - Distance worsening: -0.01 per unit farther
-        - Wall collision: -0.15
-        - Time in wall: -0.01 per second
-        - Time penalty: -2.0 / max_steps per step
+        Reward structure:
+        - Goal reached: +5.0
+        - Distance improvement: Δd / d (normalized by current distance)
+        - Wall collision: -3.0 (episode ends immediately)
+        - Time penalty: -5.0 / max_steps per step
         """
         reward = 0.0
 
@@ -292,30 +272,21 @@ class UnityMazeGymWrapper(gym.Env):
         if len(obs) > 5 and obs[5] > 0.5:  # has_reached_goal
             reward += self.reward_goal_reached
 
-        # Reward shaping: distance improvement/worsening
-        if (
-            len(obs) > 3
-            and self.previous_obs is not None
-            and len(self.previous_obs) > 2
-        ):
+        # Reward shaping: Δd / d (distance improvement normalized by current distance)
+        if len(obs) > 3 and self.previous_obs is not None and len(self.previous_obs) > 2:
             current_distance = obs[2] * 10.0  # Denormalize (was normalized by 10f)
             previous_distance = (
-                self.previous_obs[2] * 10.0
-                if len(self.previous_obs) > 2
-                else current_distance
+                self.previous_obs[2] * 10.0 if len(self.previous_obs) > 2 else current_distance
             )
 
-            distance_delta = previous_distance - current_distance  # Positive = closer
-            reward += distance_delta * self.reward_distance_improvement
+            distance_delta = previous_distance - current_distance  # Δd (positive = closer)
+            # Reward = Δd / d - normalized distance improvement
+            if current_distance > 0.1:  # Avoid division by very small numbers
+                reward += distance_delta / current_distance
 
-        # Wall collision penalty
+        # Wall collision penalty (episode ends immediately with -3 penalty)
         if len(obs) > 4 and obs[4] > 0.5:  # has_hit_wall
             reward += self.reward_wall_collision
-
-            # Additional penalty for time spent in wall
-            if len(obs) > 6:
-                time_in_wall = obs[6]
-                reward += time_in_wall * self.reward_wall_time_penalty
 
         # Time penalty (encourage faster completion)
         reward += self.reward_time_penalty

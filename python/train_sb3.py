@@ -10,13 +10,13 @@ import os
 
 import gymnasium as gym
 import numpy as np
+import torch
 from gymnasium import spaces
+from gymnasium_wrapper import make_unity_maze_env
 from stable_baselines3 import A2C, DQN, PPO, SAC
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
-
-from gymnasium_wrapper import make_unity_maze_env
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
 
 
 def get_latest_log_dir(log_base_path, algorithm_prefix):
@@ -91,7 +91,7 @@ def make_env(unity_env_path, worker_id, force_continuous=False):
             unity_env_path=unity_env_path,
             worker_id=worker_id,
             no_graphics=True,
-            time_scale=5.0,
+            time_scale=2.5,  # Reduced for Editor mode. Use 20.0 with built executable
             max_steps=10000,
         )
         if force_continuous and isinstance(env.action_space, spaces.Discrete):
@@ -140,30 +140,32 @@ def train_ppo(
     )
 
     # Create PPO model with improved hyperparameters
-    # Learning rate schedule: linear decay from 3e-4 to 1e-5
-    def lr_schedule(progress_remaining):
-        """Linear learning rate decay."""
-        return 3e-4 * progress_remaining + 1e-5 * (1 - progress_remaining)
+    # Learning rate schedule: DISABLED - using fixed LR for stability
+    # def lr_schedule(progress_remaining):
+    #     """Slower learning rate decay - better for maze learning."""
+    #     # Only 3x decay (3e-4 → 1e-4) instead of 30x (3e-4 → 1e-5)
+    #     return 3e-4 * progress_remaining + 1e-4 * (1 - progress_remaining)
+
+    # Fixed learning rate for more stable training
+    FIXED_LR = 3e-4
 
     if load_path is not None and os.path.exists(load_path):
         print(f"Loading model from {load_path}...")
-        # Override learning rate with the schedule for the new training phase
-        model = PPO.load(
-            load_path, env=env, custom_objects={"learning_rate": lr_schedule}
-        )
-        print("Model loaded with reset learning rate schedule.")
+        # Override learning rate with fixed value for stability
+        model = PPO.load(load_path, env=env, custom_objects={"learning_rate": FIXED_LR})
+        print(f"Model loaded with fixed learning rate: {FIXED_LR}")
     else:
         model = PPO(
             "MlpPolicy",
             env,
-            learning_rate=lr_schedule,  # Learning rate with decay
+            learning_rate=FIXED_LR,  # Fixed learning rate (no decay)
             n_steps=2048 // n_envs,  # More steps for better gradient estimates
             batch_size=64,  # Larger batch for stability
             n_epochs=10,  # More epochs per update
             gamma=0.99,  # Higher discount for longer-term planning in maze
             gae_lambda=0.95,
             clip_range=0.2,
-            ent_coef=0.01,  # Slightly higher entropy for exploration
+            ent_coef=0.02,  # Slightly higher entropy for exploration
             vf_coef=0.5,  # Value function coefficient
             max_grad_norm=0.5,  # Gradient clipping for stability
             policy_kwargs=dict(
@@ -197,9 +199,7 @@ def train_ppo(
     return model
 
 
-def train_dqn(
-    unity_env_path=None, total_timesteps=500000, save_dir="./models", load_path=None
-):
+def train_dqn(unity_env_path=None, total_timesteps=500000, save_dir="./models", load_path=None):
     """
     Train agent using DQN (Deep Q-Network).
 
@@ -271,11 +271,9 @@ def train_dqn(
     return model
 
 
-def train_sac(
-    unity_env_path=None, total_timesteps=500000, save_dir="./models", load_path=None
-):
+def train_sac(unity_env_path=None, total_timesteps=500000, save_dir="./models", load_path=None):
     """
-    Train agent using SAC (Soft Actor-Critic).
+    Train agent using SAC (Soft Actor-Critic) with GPU support.
 
     Args:
         unity_env_path (str): Path to Unity build. None for Unity Editor.
@@ -285,23 +283,44 @@ def train_sac(
     """
     print(f"Training SAC agent for {total_timesteps} timesteps...")
 
+    # Check for GPU availability
+    if torch.cuda.is_available():
+        device = "cuda"
+        print(f"GPU detected: {torch.cuda.get_device_name(0)}")
+        print(f"Training on GPU (CUDA)")
+    else:
+        device = "cpu"
+        print("No GPU detected, training on CPU")
+
     # Create directories
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(f"{save_dir}/logs", exist_ok=True)
 
     # Create environment (force continuous for SAC)
-    env = DummyVecEnv([make_env(unity_env_path, 0, force_continuous=True)])
+    base_env = DummyVecEnv([make_env(unity_env_path, 0, force_continuous=True)])
 
     # Create callbacks
     checkpoint_callback = CheckpointCallback(
         save_freq=10000, save_path=f"{save_dir}/checkpoints", name_prefix="sac_maze"
     )
 
-    # Create SAC model
+    # Create SAC model with GPU support
     if load_path is not None and os.path.exists(load_path):
         print(f"Loading model from {load_path}...")
-        model = SAC.load(load_path, env=env)
+        # Try to load VecNormalize stats if they exist
+        vec_normalize_path = load_path.replace(".zip", "_vecnormalize.pkl")
+        if not vec_normalize_path.endswith("_vecnormalize.pkl"):
+            vec_normalize_path = f"{load_path}_vecnormalize.pkl"
+        if os.path.exists(vec_normalize_path):
+            print(f"Loading VecNormalize stats from {vec_normalize_path}...")
+            env = VecNormalize.load(vec_normalize_path, base_env)
+        else:
+            # No saved stats, create new VecNormalize
+            env = VecNormalize(base_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
+        model = SAC.load(load_path, env=env, device=device)
     else:
+        # Add VecNormalize for better training stability
+        env = VecNormalize(base_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
         model = SAC(
             "MlpPolicy",
             env,
@@ -313,6 +332,7 @@ def train_sac(
             train_freq=1,
             gradient_steps=1,
             ent_coef="auto",
+            device=device,  # Use GPU if available
             verbose=1,
             tensorboard_log=f"{save_dir}/logs",
         )
@@ -335,7 +355,12 @@ def train_sac(
     checkpoint_name = get_final_checkpoint_name(f"{save_dir}/logs", "SAC", actual_steps)
     final_model_path = f"{save_dir}/checkpoints/{checkpoint_name}"
     model.save(final_model_path)
+
+    # Save VecNormalize statistics
+    vec_normalize_path = f"{save_dir}/checkpoints/{checkpoint_name}_vecnormalize.pkl"
+    env.save(vec_normalize_path)
     print(f"Final checkpoint saved to {final_model_path} ({actual_steps} steps)")
+    print(f"VecNormalize stats saved to {vec_normalize_path}")
 
     env.close()
     return model
@@ -389,9 +414,7 @@ def train_a2c(
 
     if load_path is not None and os.path.exists(load_path):
         print(f"Loading model from {load_path}...")
-        model = A2C.load(
-            load_path, env=env, custom_objects={"learning_rate": lr_schedule}
-        )
+        model = A2C.load(load_path, env=env, custom_objects={"learning_rate": lr_schedule})
         print("Model loaded with reset learning rate schedule.")
     else:
         model = A2C(
@@ -450,9 +473,7 @@ def evaluate_model(model_path, unity_env_path=None, n_episodes=10):
     is_sac = "sac" in model_path.lower()
 
     # Create environment
-    env = make_unity_maze_env(
-        unity_env_path=unity_env_path, no_graphics=False, time_scale=1.0
-    )
+    env = make_unity_maze_env(unity_env_path=unity_env_path, no_graphics=False, time_scale=1.0)
 
     if is_sac and isinstance(env.action_space, spaces.Discrete):
         print("Wrapping environment for SAC (Discrete -> Box)")
@@ -489,21 +510,15 @@ def evaluate_model(model_path, unity_env_path=None, n_episodes=10):
             if terminated or truncated:
                 episode_rewards.append(episode_reward)
                 episode_lengths.append(steps)
-                print(
-                    f"Episode {episode + 1}: Steps = {steps}, Reward = {episode_reward:.2f}"
-                )
+                print(f"Episode {episode + 1}: Steps = {steps}, Reward = {episode_reward:.2f}")
                 break
 
     env.close()
 
     # Print statistics
     print("\n--- Evaluation Results ---")
-    print(
-        f"Mean Reward: {np.mean(episode_rewards):.2f} ± {np.std(episode_rewards):.2f}"
-    )
-    print(
-        f"Mean Length: {np.mean(episode_lengths):.1f} ± {np.std(episode_lengths):.1f}"
-    )
+    print(f"Mean Reward: {np.mean(episode_rewards):.2f} ± {np.std(episode_rewards):.2f}")
+    print(f"Mean Length: {np.mean(episode_lengths):.1f} ± {np.std(episode_lengths):.1f}")
 
     return episode_rewards, episode_lengths
 
@@ -511,9 +526,7 @@ def evaluate_model(model_path, unity_env_path=None, n_episodes=10):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Train Unity Maze Agent with Stable-Baselines3"
-    )
+    parser = argparse.ArgumentParser(description="Train Unity Maze Agent with Stable-Baselines3")
     parser.add_argument(
         "--mode",
         type=str,
@@ -534,9 +547,7 @@ if __name__ == "__main__":
         default=None,
         help="Path to Unity build executable (None for Unity Editor)",
     )
-    parser.add_argument(
-        "--timesteps", type=int, default=30000, help="Total timesteps for training"
-    )
+    parser.add_argument("--timesteps", type=int, default=30000, help="Total timesteps for training")
     parser.add_argument(
         "--n-envs",
         type=int,
@@ -549,9 +560,7 @@ if __name__ == "__main__":
         default=None,
         help="Path to model for evaluation OR continuation of training",
     )
-    parser.add_argument(
-        "--save-dir", type=str, default="./models", help="Directory to save models"
-    )
+    parser.add_argument("--save-dir", type=str, default="./models", help="Directory to save models")
 
     args = parser.parse_args()
 
@@ -591,6 +600,4 @@ if __name__ == "__main__":
         if args.model_path is None:
             print("Error: --model-path required for evaluation mode")
         else:
-            evaluate_model(
-                model_path=args.model_path, unity_env_path=args.unity_env, n_episodes=10
-            )
+            evaluate_model(model_path=args.model_path, unity_env_path=args.unity_env, n_episodes=10)

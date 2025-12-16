@@ -97,11 +97,16 @@ InitTestScene*.unity*
 
 # Auto-generated scenes by play mode tests
 /[Aa]ssets/[Ii]nit[Tt]est[Ss]cene*.unity*
-ENVs/Library/APIUpdater/ConfigurationCache/*
-ENVs/Library/Artifacts/*
-ENVs/Library/Bee/artifacts/*
-ENVs/Library/Bee/CachedNodeOutput/*
-ENVs/Library/BurstCache/Windows-Intel/*
-ENVs/Library/PackageCache/*
-ENVs/Library/ShaderCache/*
-ENVs/Library/APIUpdater/ConfigurationCache/*
+# Unity ENVs project specific ignores
+ENVs/[Ll]ibrary/
+ENVs/[Tt]emp/
+ENVs/[Oo]bj/
+ENVs/[Ll]ogs/
+ENVs/[Uu]ser[Ss]ettings/
+
+# ML Training outputs (checkpoints, logs)
+ENVs/models/
+
+# Python
+python/models/*
+python/__pycache__/

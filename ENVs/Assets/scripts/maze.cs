@@ -254,6 +254,54 @@ public class maze : MonoBehaviour
         return new Vector3(randomPos.x * scale, 0.3f, randomPos.z * scale);
     }
 
+    // Get the farthest empty position from a given world position
+    public Vector3 GetFarthestEmptyPosition(Vector3 fromPosition)
+    {
+        if (map == null)
+        {
+            Debug.LogError("Maze map is not initialized.");
+            return Vector3.zero;
+        }
+        
+        List<MapLocation> emptyPositions = new List<MapLocation>();
+        
+        // Collect all empty positions
+        for (int z = 0; z < height; z++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                if (map[x, z] == 0)
+                {
+                    emptyPositions.Add(new MapLocation(x, z));
+                }
+            }
+        }
+
+        if (emptyPositions.Count == 0)
+        {
+            Debug.LogWarning("No empty positions found in maze!");
+            return Vector3.zero;
+        }
+
+        // Find the farthest position
+        Vector3 farthestPosition = Vector3.zero;
+        float maxDistance = 0f;
+        
+        foreach (MapLocation pos in emptyPositions)
+        {
+            Vector3 worldPos = new Vector3(pos.x * scale, 0.3f, pos.z * scale);
+            float distance = Vector3.Distance(fromPosition, worldPos);
+            
+            if (distance > maxDistance)
+            {
+                maxDistance = distance;
+                farthestPosition = worldPos;
+            }
+        }
+        
+        return farthestPosition;
+    }
+
     // Check if a world position is inside a wall
     public bool IsPositionInWall(Vector3 worldPosition)
     {
