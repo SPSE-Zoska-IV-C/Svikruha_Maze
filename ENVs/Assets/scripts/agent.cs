@@ -44,7 +44,7 @@ public class agent : Agent
     
     public override void Initialize()
     {
-        Debug.Log("Initialize"); 
+        Debug.Log($"[AGENT] Initialize - UseRayObservations={_useRayObservations}, NumRays={_numRays}"); 
 
         _rigidbody = GetComponent<Rigidbody>(); // <-- ADDED: Get the Rigidbody component
         _renderer =  GetComponent<Renderer>();
@@ -65,8 +65,8 @@ public class agent : Agent
         _timeInWall = 0f;
         _renderer.material.color = Color.blue;
 
-        // Regenerate maze every 500 episodes for better generalization
-        if (_maze != null && _currentEpisode % 250 == 0)
+        // Regenerate maze every 1000 episodes for better generalization
+        if (_maze != null && _currentEpisode % 2000 == 0)
         {
             Debug.Log($"Regenerating maze at episode {_currentEpisode}");
             _maze.RegenerateMaze();
@@ -175,6 +175,10 @@ public class agent : Agent
 
     public override void CollectObservations(VectorSensor sensor)
     {
+        // DEBUG: Log observation count (remove after debugging)
+    //    int expectedObs = 8 + (_useRayObservations ? _numRays * 2 : 0);
+     //   Debug.Log($"[AGENT] CollectObservations called. UseRays={_useRayObservations}, NumRays={_numRays}, Expected={expectedObs} observations");
+        
         // --- OBSERVATIONS FOR AGENT DECISION MAKING ---
         
         // Calculate the goal's position relative to the agent's position AND rotation
@@ -234,26 +238,43 @@ public class agent : Agent
         {
             float stepReward = 0f;
 
-            // 1. Goal Reached
+            // 1. Goal Reached (+50.0 - very high reward to dominate all penalties)
             if (_hasReachedGoal)
             {
-                stepReward += 5.0f;  // Matches Python: reward_goal_reached
+                stepReward += 50.0f;  // Matches Python: reward_goal_reached
             }
 
-            // 2. Distance Improvement
-            float distanceDelta = _previousDistanceToGoal - currentDistance;
-            stepReward += distanceDelta * 0.01f;  // Matches Python: reward_distance_improvement
+            // 2. Distance Improvement - DISABLED (Euclidean distance is misleading in maze)
+            // float distanceDelta = _previousDistanceToGoal - currentDistance;
+            // if (currentDistance > 0.1f)
+            // {
+            //     stepReward += 0.0f * (distanceDelta / currentDistance);
+            // }
 
-            // 3. Wall Collision
+            // 3. Wall Collision (-0.2 initial + -0.02 per second continuous)
+            // Mild penalty - walls are expected in a maze!
             if (_hasHitWall)
             {
-                stepReward += -0.05f;  // Matches Python: reward_wall_collision
-                stepReward += _timeInWall * -0.005f;  // Matches Python: reward_wall_time_penalty
+                if (_timeInWall < Time.fixedDeltaTime * 2f)  // Approximate "just started"
+                {
+                    stepReward += -0.2f;  // Matches Python: reward_wall_collision_initial
+                }
+                stepReward += -0.02f * _timeInWall;  // Matches Python: reward_wall_collision_per_second
             }
 
-            // 4. Time Penalty
-            float maxSteps = MaxStep > 0 ? MaxStep : 5000f;  // Updated default
-            stepReward += -2.0f / maxSteps;  // Matches Python: reward_time_penalty
+            // 4. Movement Bonus (+0.02) or Standing Still Penalty (-0.1)
+            if (_rigidbody != null && _rigidbody.linearVelocity.magnitude > 0.01f)
+            {
+                stepReward += 0.02f;  // Matches Python: reward_movement_bonus
+            }
+            else
+            {
+                stepReward += -0.1f;  // Matches Python: reward_standing_still
+            }
+
+            // 5. Time Penalty (-30.0 / max_steps per step)
+            float maxSteps = MaxStep > 0 ? MaxStep : 1000f;
+            stepReward += -30.0f / maxSteps;  // Matches Python: reward_time_penalty
 
             _cumulativeReward += stepReward;
         }

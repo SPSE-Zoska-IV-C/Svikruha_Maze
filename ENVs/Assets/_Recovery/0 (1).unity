@@ -2052,8 +2052,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 90506d6879f916c429d325f0db549487, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::maze
-  width: 6
-  height: 6
+  width: 7
+  height: 7
   scale: 3
   wallMaterial: {fileID: 2100000, guid: 26421165e5ec56b46866d42e3a33e350, type: 2}
 --- !u!4 &1632665545
