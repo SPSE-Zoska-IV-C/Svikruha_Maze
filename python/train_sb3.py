@@ -25,7 +25,7 @@ import numpy as np
 import torch
 from gymnasium import spaces
 from gymnasium_wrapper import make_unity_maze_env
-from stable_baselines3 import A2C, DQN, PPO, SAC
+from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
@@ -89,7 +89,7 @@ def get_latest_log_dir(log_base_path, algorithm_prefix):
 
     Args:
         log_base_path: Base path where tensorboard logs are stored
-        algorithm_prefix: Algorithm prefix (e.g., "PPO", "DQN", "A2C", "SAC")
+        algorithm_prefix: Algorithm prefix (e.g., "PPO", "SAC")
 
     Returns:
         Name of the latest log directory (e.g., "PPO_12")
@@ -111,7 +111,7 @@ def get_final_checkpoint_name(log_base_path, algorithm_prefix, total_steps):
 
     Args:
         log_base_path: Base path where tensorboard logs are stored
-        algorithm_prefix: Algorithm prefix (e.g., "PPO", "DQN", "A2C", "SAC")
+        algorithm_prefix: Algorithm prefix (e.g., "PPO", "SAC")
         total_steps: Total number of steps trained
 
     Returns:
@@ -356,142 +356,6 @@ def train_ppo(
     return model
 
 
-def train_dqn(
-    unity_env_path=None,
-    total_timesteps=500000,
-    n_envs=1,
-    save_dir="./models",
-    load_path=None,
-    max_steps=2000,
-):
-    """
-    Train agent using DQN (Deep Q-Network).
-
-    Note: DQN is an off-policy algorithm and doesn't benefit as much from
-    parallel environments as on-policy algorithms (PPO, A2C). However,
-    parallel envs can still speed up data collection.
-
-    Args:
-        unity_env_path (str): Path to Unity build. None for Unity Editor.
-        total_timesteps (int): Total training steps.
-        n_envs (int): Number of parallel environments (requires Unity build for n_envs > 1).
-        save_dir (str): Directory to save models.
-        load_path (str): Path to a saved model to continue training from.
-        max_steps (int): Maximum steps per episode (default: 2000).
-    """
-    print(f"\n{'='*60}")
-    print(f"DQN Training Configuration")
-    print(f"{'='*60}")
-    print(f"Total timesteps: {total_timesteps:,}")
-    print(f"Parallel environments: {n_envs}")
-
-    if n_envs > 1:
-        print("[NOTE] DQN is off-policy; parallel envs provide moderate speedup")
-
-    # Verify Unity build for parallel training
-    verify_unity_build(unity_env_path, n_envs)
-
-    # Create directories
-    os.makedirs(save_dir, exist_ok=True)
-    os.makedirs(f"{save_dir}/logs", exist_ok=True)
-
-    # Create vectorized environments
-    dqn_time_scale = 20.0
-    print(f"Time scale: {dqn_time_scale}x")
-    base_env = create_parallel_envs(unity_env_path, n_envs, time_scale=dqn_time_scale, max_steps=max_steps)
-
-    # Create callbacks
-    checkpoint_callback = CheckpointCallback(
-        save_freq=max(10000 // n_envs, 1000),
-        save_path=f"{save_dir}/checkpoints",
-        name_prefix="dqn_maze",
-    )
-
-    # Create DQN model
-    if load_path is not None and os.path.exists(load_path):
-        print(f"Loading model from {load_path}...")
-        # Check observation space compatibility
-        temp_model = DQN.load(load_path)
-        model_obs_shape = temp_model.observation_space.shape
-        env_obs_shape = base_env.observation_space.shape
-        
-        if model_obs_shape != env_obs_shape:
-            print(f"\n{'='*70}")
-            print(f"WARNING: Observation space mismatch!")
-            print(f"  Model expects:     {model_obs_shape}")
-            print(f"  Environment has:   {env_obs_shape}")
-            print(f"{'='*70}")
-            base_env.close()
-            raise ValueError(f"Observation space mismatch: model {model_obs_shape} vs env {env_obs_shape}")
-        
-        del temp_model
-        
-        # Try to load VecNormalize stats if they exist
-        vec_normalize_path = load_path.replace(".zip", "_vecnormalize.pkl")
-        if not vec_normalize_path.endswith("_vecnormalize.pkl"):
-            vec_normalize_path = f"{load_path}_vecnormalize.pkl"
-        if os.path.exists(vec_normalize_path):
-            print(f"Loading VecNormalize stats from {vec_normalize_path}...")
-            env = VecNormalize.load(vec_normalize_path, base_env)
-        else:
-            print("Warning: VecNormalize stats not found, creating new wrapper")
-            env = VecNormalize(base_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
-        
-        model = DQN.load(load_path, env=env)
-        print(f"Observation space verified: {model_obs_shape}")
-    else:
-        # CRITICAL: Normalize observations and rewards for stable DQN training
-        env = VecNormalize(base_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
-        print("[OK] VecNormalize enabled (norm_obs=True, norm_reward=True, clip_obs=10.0)")
-
-        model = DQN(
-            "MlpPolicy",
-            env,
-            learning_rate=1e-4,
-            buffer_size=100000,
-            learning_starts=1000,
-            batch_size=32,
-            tau=1.0,
-            gamma=0.99,
-            train_freq=4,
-            gradient_steps=1,
-            target_update_interval=1000,
-            exploration_fraction=0.1,
-            exploration_initial_eps=1.0,
-            exploration_final_eps=0.05,
-            verbose=1,
-            tensorboard_log=f"{save_dir}/logs",
-        )
-
-    # Train the model
-    print("Starting training...")
-    print("Press Ctrl+C in PowerShell to stop training and save checkpoint.")
-
-    try:
-        model.learn(
-            total_timesteps=total_timesteps,
-            callback=checkpoint_callback,
-            progress_bar=False,  # Disabled progress bar to avoid dependency issues
-        )
-    except KeyboardInterrupt:
-        print("\n\nTraining interrupted by user (Ctrl+C)!")
-
-    # Save final checkpoint with log name and actual steps trained
-    actual_steps = model.num_timesteps
-    checkpoint_name = get_final_checkpoint_name(f"{save_dir}/logs", "DQN", actual_steps)
-    final_model_path = f"{save_dir}/checkpoints/{checkpoint_name}"
-    model.save(final_model_path)
-
-    # Save VecNormalize statistics
-    vec_normalize_path = f"{save_dir}/checkpoints/{checkpoint_name}_vecnormalize.pkl"
-    env.save(vec_normalize_path)
-    print(f"Final checkpoint saved to {final_model_path} ({actual_steps} steps)")
-    print(f"VecNormalize stats saved to {vec_normalize_path}")
-
-    env.close()
-    return model
-
-
 def train_sac(
     unity_env_path=None,
     total_timesteps=500000,
@@ -504,7 +368,7 @@ def train_sac(
     Train agent using SAC (Soft Actor-Critic) with GPU support.
 
     Note: SAC is an off-policy algorithm and doesn't benefit as much from
-    parallel environments as on-policy algorithms (PPO, A2C). However,
+    parallel environments as on-policy algorithms (PPO). However,
     parallel envs can still speed up data collection.
 
     Args:
@@ -633,142 +497,6 @@ def train_sac(
     return model
 
 
-def train_a2c(
-    unity_env_path=None,
-    total_timesteps=500000,
-    n_envs=1,
-    save_dir="./models",
-    load_path=None,
-    max_steps=2000,
-):
-    """
-    Train agent using A2C (Advantage Actor-Critic).
-
-    A2C is a synchronous version of A3C, good for environments where
-    parallelization provides significant speedup.
-
-    Args:
-        unity_env_path (str): Path to Unity build. None for Unity Editor.
-        total_timesteps (int): Total training steps.
-        n_envs (int): Number of parallel environments (requires Unity build for n_envs > 1).
-        save_dir (str): Directory to save models.
-        load_path (str): Path to a saved model to continue training from.
-        max_steps (int): Maximum steps per episode (default: 2000).
-    """
-    print(f"\n{'='*60}")
-    print(f"A2C Training Configuration")
-    print(f"{'='*60}")
-    print(f"Total timesteps: {total_timesteps:,}")
-    print(f"Parallel environments: {n_envs}")
-
-    # Verify Unity build for parallel training
-    verify_unity_build(unity_env_path, n_envs)
-
-    # Create directories
-    os.makedirs(save_dir, exist_ok=True)
-    os.makedirs(f"{save_dir}/logs", exist_ok=True)
-
-    # Create vectorized environments
-    a2c_time_scale = 20.0  # Faster simulation for A2C training
-    print(f"Time scale: {a2c_time_scale}x")
-    base_env = create_parallel_envs(unity_env_path, n_envs, time_scale=a2c_time_scale, max_steps=max_steps)
-
-    # Create callbacks
-    checkpoint_callback = CheckpointCallback(
-        save_freq=max(10000 // n_envs, 1000),
-        save_path=f"{save_dir}/checkpoints",
-        name_prefix="a2c_maze",
-    )
-
-    # Create A2C model
-    # Learning rate schedule for A2C
-    def lr_schedule(progress_remaining):
-        """Linear learning rate decay."""
-        return 7e-4 * progress_remaining + 1e-5 * (1 - progress_remaining)
-
-    if load_path is not None and os.path.exists(load_path):
-        print(f"Loading model from {load_path}...")
-        # Check observation space compatibility
-        temp_model = A2C.load(load_path)
-        model_obs_shape = temp_model.observation_space.shape
-        env_obs_shape = base_env.observation_space.shape
-        
-        if model_obs_shape != env_obs_shape:
-            print(f"\n{'='*70}")
-            print(f"WARNING: Observation space mismatch!")
-            print(f"  Model expects:     {model_obs_shape}")
-            print(f"  Environment has:   {env_obs_shape}")
-            print(f"{'='*70}")
-            base_env.close()
-            raise ValueError(f"Observation space mismatch: model {model_obs_shape} vs env {env_obs_shape}")
-        
-        del temp_model
-        
-        # Try to load VecNormalize stats if they exist
-        vec_normalize_path = load_path.replace(".zip", "_vecnormalize.pkl")
-        if not vec_normalize_path.endswith("_vecnormalize.pkl"):
-            vec_normalize_path = f"{load_path}_vecnormalize.pkl"
-        if os.path.exists(vec_normalize_path):
-            print(f"Loading VecNormalize stats from {vec_normalize_path}...")
-            env = VecNormalize.load(vec_normalize_path, base_env)
-        else:
-            print("Warning: VecNormalize stats not found, creating new wrapper")
-            env = VecNormalize(base_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
-        
-        model = A2C.load(load_path, env=env, custom_objects={"learning_rate": lr_schedule})
-        print(f"Model loaded with reset learning rate schedule.")
-        print(f"Observation space verified: {model_obs_shape}")
-    else:
-        # CRITICAL: Normalize observations and rewards for A2C convergence
-        env = VecNormalize(base_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
-        print("[OK] VecNormalize enabled (norm_obs=True, norm_reward=True, clip_obs=10.0)")
-
-        model = A2C(
-            "MlpPolicy",
-            env,
-            learning_rate=lr_schedule,  # Standard A2C learning rate with decay
-            n_steps=5,  # A2C typically uses fewer steps than PPO
-            gamma=0.99,  # Discount factor for long-term rewards
-            gae_lambda=1.0,  # GAE lambda (1.0 = no GAE, just returns)
-            ent_coef=0.01,  # Entropy coefficient for exploration
-            vf_coef=0.5,  # Value function loss coefficient
-            max_grad_norm=0.5,  # Gradient clipping for stability
-            use_rms_prop=True,  # Use RMSprop optimizer (standard for A2C)
-            normalize_advantage=True,  # Normalize advantages for stability
-            policy_kwargs=dict(net_arch=dict(pi=[128, 128], vf=[128, 128])),
-            verbose=1,
-            tensorboard_log=f"{save_dir}/logs",
-        )
-
-    # Train the model
-    print("Starting training...")
-    print("Press Ctrl+C in PowerShell to stop training and save checkpoint.")
-
-    try:
-        model.learn(
-            total_timesteps=total_timesteps,
-            callback=checkpoint_callback,
-            progress_bar=False,
-        )
-    except KeyboardInterrupt:
-        print("\n\nTraining interrupted by user (Ctrl+C)!")
-
-    # Save final checkpoint with log name and actual steps trained
-    actual_steps = model.num_timesteps
-    checkpoint_name = get_final_checkpoint_name(f"{save_dir}/logs", "A2C", actual_steps)
-    final_model_path = f"{save_dir}/checkpoints/{checkpoint_name}"
-    model.save(final_model_path)
-
-    # Save VecNormalize statistics
-    vec_normalize_path = f"{save_dir}/checkpoints/{checkpoint_name}_vecnormalize.pkl"
-    env.save(vec_normalize_path)
-    print(f"Final checkpoint saved to {final_model_path} ({actual_steps} steps)")
-    print(f"VecNormalize stats saved to {vec_normalize_path}")
-
-    env.close()
-    return model
-
-
 def evaluate_model(model_path, unity_env_path=None, n_episodes=10, max_steps=2000):
     """
     Evaluate a trained model.
@@ -793,15 +521,13 @@ def evaluate_model(model_path, unity_env_path=None, n_episodes=10, max_steps=200
 
     vec_env = DummyVecEnv([lambda: base_env])
 
-    # PPO models don't use VecNormalize; other algorithms do
+    # PPO models don't use VecNormalize; SAC does
     is_ppo = "ppo" in model_path.lower()
 
     if is_ppo:
-        # PPO uses raw observations (already normalized in Unity)
         env = vec_env
         print("[OK] PPO evaluation without VecNormalize")
     else:
-        # Other algorithms use VecNormalize - try to load stats
         vec_normalize_path = model_path.replace(".zip", "_vecnormalize.pkl")
         if not vec_normalize_path.endswith("_vecnormalize.pkl"):
             vec_normalize_path = f"{model_path}_vecnormalize.pkl"
@@ -814,21 +540,16 @@ def evaluate_model(model_path, unity_env_path=None, n_episodes=10, max_steps=200
             print("  The agent may perform poorly without normalization stats.")
             env = VecNormalize(vec_env, norm_obs=True, norm_reward=False, clip_obs=10.0)
 
-        # Disable reward normalization and training mode for evaluation
         env.training = False
         env.norm_reward = False
 
     # Load the correct model class
     if is_ppo:
         model = PPO.load(model_path)
-    elif "dqn" in model_path.lower():
-        model = DQN.load(model_path)
-    elif "a2c" in model_path.lower():
-        model = A2C.load(model_path)
     elif "sac" in model_path.lower():
         model = SAC.load(model_path)
     else:
-        raise ValueError(f"Unknown model type in {model_path}")
+        raise ValueError(f"Unknown model type in {model_path}. Supported: PPO, SAC")
 
     # Run evaluation (all models use VecEnv via VecNormalize now)
     episode_rewards = []
@@ -897,7 +618,7 @@ Note: Parallel training (--n-envs > 1) requires a Unity BUILD executable.
         "--algorithm",
         type=str,
         default="ppo",
-        choices=["ppo", "dqn", "a2c", "sac"],
+        choices=["ppo", "sac"],
         help="RL algorithm to use",
     )
     parser.add_argument(
@@ -951,26 +672,8 @@ Note: Parallel training (--n-envs > 1) requires a Unity BUILD executable.
                 load_path=args.model_path,
                 max_steps=args.max_steps,
             )
-        elif args.algorithm == "dqn":
-            train_dqn(
-                unity_env_path=args.unity_env,
-                total_timesteps=args.timesteps,
-                n_envs=args.n_envs,
-                save_dir=args.save_dir,
-                load_path=args.model_path,
-                max_steps=args.max_steps,
-            )
         elif args.algorithm == "sac":
             train_sac(
-                unity_env_path=args.unity_env,
-                total_timesteps=args.timesteps,
-                n_envs=args.n_envs,
-                save_dir=args.save_dir,
-                load_path=args.model_path,
-                max_steps=args.max_steps,
-            )
-        elif args.algorithm == "a2c":
-            train_a2c(
                 unity_env_path=args.unity_env,
                 total_timesteps=args.timesteps,
                 n_envs=args.n_envs,

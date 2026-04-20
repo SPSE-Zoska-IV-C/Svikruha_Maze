@@ -1,179 +1,196 @@
-# Unity Editor Changes Required
+# Unity Editor - potrebne nastavenia
 
-After updating `agent.cs` to use Python-based reward calculation with ray observations, you need to make the following changes in Unity Editor:
+Nastavenia v Unity Editore pre spravne fungovanie agenta s Python-side reward vypoctom a ray observaciami.
 
-## 🔧 Required Changes
+## Potrebne zmeny
 
-### 1. **Agent Behavior Parameters Component**
+### 1. Behavior Parameters komponent
 
-**Location:** Select your Agent GameObject → Inspector → Behavior Parameters component
+**Umiestnenie:** Vyber Agent GameObject > Inspector > Behavior Parameters
 
-**Changes needed:**
+**Nastavenia:**
 
 1. **Vector Observation Space Size**
-   - ❌ **OLD:** `2` or `8` (without ray observations)
-   - ✅ **NEW:** `24` (with ray observations enabled - default)
-   
-   **Calculation:**
-   - Base observations: `8`
-   - Ray observations: `8 rays × 2 values each = 16`
-   - **Total: `8 + 16 = 24`**
-   
-   **How to change:**
-   - Select your Agent GameObject in Hierarchy
-   - In Inspector, find the **Behavior Parameters** component
-   - Change **Vector Observation → Space Size** to `24`
+   - S ray observaciami (default): **24**
+   - Bez ray observacii: **8**
 
-### 2. **Agent Component - Ray Observation Settings**
+   **Vypocet:**
+   - Zakladne observacie: `8`
+   - Ray observacie: `8 lucov x 2 hodnoty = 16`
+   - **Celkom: `8 + 16 = 24`**
 
-**Location:** Select your Agent GameObject → Inspector → Agent (Script) component
+   **Postup zmeny:**
+   - Vyber Agent GameObject v Hierarchy
+   - V Inspectore najdi **Behavior Parameters** komponent
+   - Zmen **Vector Observation > Space Size** na `24`
 
-**New configurable fields:**
+### 2. Agent komponent - nastavenia ray observacii
 
-| Field | Default | Description |
-|-------|---------|-------------|
-| **Use Ray Observations** | ✓ Enabled | Toggle ray-based wall detection |
-| **Num Rays** | `8` | Number of rays cast around agent |
-| **Ray Length** | `10` | Maximum ray detection distance |
-| **Ray Start Height** | `0.5` | Height offset for ray origin |
-| **Ray Layer Mask** | Everything | Layers to detect with rays |
+**Umiestnenie:** Agent GameObject > Inspector > Agent (Script) komponent
 
-**If you disable ray observations:**
-- Set **Vector Observation Space Size** to `8` instead of `24`
+**Konfigurovatelne polia:**
 
-### 3. **Verify Other Settings**
+| Pole | Default | Popis |
+|------|---------|-------|
+| **Use Ray Observations** | zapnute | Prepinac ray detekcie stien |
+| **Num Rays** | `8` | Pocet lucov okolo agenta |
+| **Ray Length** | `10` | Maximalny dosah detekcie |
+| **Ray Start Height** | `0.5` | Vyskovy offset pociatku luca |
+| **Ray Layer Mask** | Everything | Vrstvy pre detekciu |
 
-Make sure these settings are correct:
+**Ak vypnes ray observacie:**
+- Nastav **Vector Observation Space Size** na `8` namiesto `24`
 
-- ✅ **Behavior Type:** `Default` (NOT "Heuristic Only")
-- ✅ **Vector Observation → Space Size:** `24` ← **CHANGE THIS!**
-- ✅ **Actions → Discrete Branches:** `1`
-- ✅ **Actions → Branch 0 Size:** `4` (0=nothing, 1=forward, 2=left, 3=right)
-- ✅ **Decision Requester → Decision Period:** `5` (or your preferred value)
-- ✅ **Decision Requester → Take Actions Between Decisions:** ✓ Checked
+### 3. Overenie ostatnych nastaveni
 
-## 📋 Observation Structure (for reference)
+Skontroluj tieto nastavenia:
 
-### Base Observations (indices 0-7)
+- **Behavior Type:** `Default` (NIE "Heuristic Only")
+- **Vector Observation > Space Size:** `24`
+- **Actions > Discrete Branches:** `1`
+- **Actions > Branch 0 Size:** `4` (0=nic, 1=dopredu, 2=vlavo, 3=vpravo)
+- **Decision Requester > Decision Period:** `5` (alebo podla potreby)
+- **Decision Requester > Take Actions Between Decisions:** zaciarkni
 
-| Index | Observation | Description | Normalization |
-|-------|-------------|-------------|---------------|
-| 0 | Relative Goal X | Goal position relative to agent (left/right) | ÷ 5.0 |
-| 1 | Relative Goal Z | Goal position relative to agent (forward/back) | ÷ 5.0 |
-| 2 | Current Distance | Current distance to goal | ÷ 10.0 |
-| 3 | Previous Distance | Previous distance to goal | ÷ 10.0 |
-| 4 | Has Hit Wall | 1.0 if colliding with wall, 0.0 otherwise | - |
-| 5 | Has Reached Goal | 1.0 if goal reached, 0.0 otherwise | - |
-| 6 | Time In Wall | Time spent in wall collision | seconds |
-| 7 | Velocity Magnitude | Agent's velocity magnitude | ÷ 5.0 |
+### 4. Maze komponent
 
-### Ray Observations (indices 8-23, with 8 rays)
+Ak pouzivas proceduralne bludisko, nastav na Maze GameObjecte:
 
-For each ray `i` (0 to 7), the observations are:
+| Pole | Default | Popis |
+|------|---------|-------|
+| **Width** | `10` | Sirka bludiska (pocet buniek) |
+| **Height** | `10` | Vyska bludiska (pocet buniek) |
+| **Scale** | `6` | Velkost kazdej bunky vo svete |
+| **Wall Material** | - | Material pre steny (nastav!) |
 
-| Index | Observation | Description | Value Range |
-|-------|-------------|-------------|-------------|
-| 8 + i×2 | Ray Distance | Normalized distance to obstacle | 0.0 - 1.0 |
-| 9 + i×2 | Obstacle Type | What the ray hit | 0.0, 0.5, or 1.0 |
+### 5. Tagy
 
-**Obstacle Type Values:**
-- `1.0` = Wall detected
-- `0.5` = Other obstacle detected
-- `0.0` = No obstacle (max range)
+Uisti sa, ze tieto tagy existuju v projekte (Project Settings > Tags and Layers):
 
-**Ray Directions (starting from forward, clockwise):**
-- Ray 0: Forward (0°)
-- Ray 1: Forward-Right (45°)
-- Ray 2: Right (90°)
-- Ray 3: Back-Right (135°)
-- Ray 4: Back (180°)
-- Ray 5: Back-Left (225°)
-- Ray 6: Left (270°)
-- Ray 7: Forward-Left (315°)
+- **wall** - priradeny vsetkym stenam bludiska
+- **goal** - priradeny cielovemu objektu
 
-## ⚠️ Important Notes
+### 6. TrainingManager (volitelne)
 
-1. **If you don't change Vector Observation Space:**
-   - Unity will throw errors about observation size mismatch
-   - Training will fail to start
-   - The Python reward calculation won't work correctly
+Pre optimalizaciu pocas treningu pridaj `TrainingManager` skript na lubovolny GameObject:
 
-2. **Ray observations require walls tagged as "wall":**
-   - Make sure all wall objects in your scene have the tag `wall`
-   - The ray system detects walls vs other obstacles differently
+| Pole | Default | Popis |
+|------|---------|-------|
+| **Target Frame Rate** | `60` | Limituje FPS renderovania |
+| **Disable VSync** | zapnute | Pre funkcnost targetFrameRate |
+| **Optimize For Training** | zapnute | Vypne tiene, AA, atd. |
+| **Fixed Timestep** | `0.02` | Fyzikalny timestep |
+| **Maximum Delta Time** | `0.1` | Prevencia "spiral of death" |
 
-3. **After making changes:**
-   - Save the scene (Ctrl+S)
-   - The changes take effect immediately
-   - No need to rebuild the project
+## Struktura observacii
 
-4. **Debug visualization:**
-   - Ray observations are visualized in Scene view during Play mode
-   - Green rays = no obstacle
-   - Yellow rays = non-wall obstacle
-   - Red rays = wall detected
+### Zakladne observacie (index 0-7)
 
-## 🎯 Quick Checklist
+| Index | Observacia | Popis | Normalizacia |
+|-------|-----------|-------|--------------|
+| 0 | Relativna pozicia ciela X | Vlavo/vpravo od agenta | / 5.0 |
+| 1 | Relativna pozicia ciela Z | Dopredu/dozadu od agenta | / 5.0 |
+| 2 | Aktualna vzdialenost | Vzdialenost k cielu | / 10.0 |
+| 3 | Predchadzajuca vzdialenost | Predchadzajuca vzdialenost k cielu | / 10.0 |
+| 4 | Kolizia so stenou | 1.0 ak koliduje, 0.0 inak | - |
+| 5 | Dosiahol ciel | 1.0 ak dosiahol, 0.0 inak | - |
+| 6 | Cas v kolizii | Cas straveny pri stene | sekundy |
+| 7 | Rychlost agenta | Velkost vektora rychlosti | / 5.0 |
 
-- [ ] Open Unity Editor
-- [ ] Select Agent GameObject in Hierarchy
-- [ ] Find Behavior Parameters component in Inspector
-- [ ] Change Vector Observation Space Size to `24` (or `8` if rays disabled)
-- [ ] Verify Behavior Type is set to `Default`
-- [ ] (Optional) Adjust ray settings in Agent script component
-- [ ] Ensure walls are tagged as "wall"
-- [ ] Save scene (Ctrl+S)
-- [ ] Test connection with Python
+### Ray observacie (index 8-23, pri 8 lucoch)
 
-## 🔍 How to Verify the Change
+Pre kazdy luc `i` (0 az 7):
 
-After making the change, you can verify it worked:
+| Index | Observacia | Rozsah |
+|-------|-----------|--------|
+| 8 + i*2 | Vzdialenost k prekazke | 0.0 - 1.0 (normalizovana) |
+| 9 + i*2 | Typ prekazky | 1.0 = stena, 0.5 = ina prekazka, 0.0 = nic |
 
-1. **In Unity Editor:**
-   - Select Agent GameObject
-   - Check Behavior Parameters → Vector Observation → Space Size shows `24`
-   - Check Agent script shows ray observation settings
+**Smery lucov (od smeru dopredu, v smere hodinovych ruciciek):**
+- Luc 0: Dopredu (0°)
+- Luc 1: Dopredu-vpravo (45°)
+- Luc 2: Vpravo (90°)
+- Luc 3: Dozadu-vpravo (135°)
+- Luc 4: Dozadu (180°)
+- Luc 5: Dozadu-vlavo (225°)
+- Luc 6: Vlavo (270°)
+- Luc 7: Dopredu-vlavo (315°)
 
-2. **In Python:**
-   ```bash
-   python gymnasium_wrapper.py
-   ```
-   Should output:
-   ```
-   Observation space: Box(24,)
-   ```
-   NOT:
-   ```
-   Observation space: Box(2,)  # ❌ Wrong - old version
-   Observation space: Box(8,)  # ❌ Wrong - rays disabled but not configured
-   ```
+## Dolezite poznamky
 
-3. **In Unity Scene View (Play mode):**
-   - You should see colored debug rays around the agent
-   - This confirms ray observations are working
+1. **Ak nezmenis Vector Observation Space Size:**
+   - Unity hodi chybu o nesuladu velkosti observacii
+   - Trening sa nespusti
+   - Python reward vypocet nebude fungovat spravne
 
-## 📝 Configuration Summary
+2. **Ray observacie vyzaduju tag "wall":**
+   - Vsetky steny v scene musia mat tag `wall`
+   - Lucovy system rozlisuje steny od inych prekazok
 
-| Configuration | Observation Size | Use When |
-|---------------|------------------|----------|
-| Rays enabled (default) | `24` | Full wall detection capabilities |
-| Rays disabled | `8` | Simpler environment without walls |
+3. **Maze regeneracia:**
+   - Bludisko sa regeneruje kazych 3000 epizod pre lepsiu generalizaciu
+   - Toto je konfigurovatelne v `agent.cs` (podmienka `_currentEpisode % 3000 == 0`)
 
-**Default setup (recommended):**
-- **Vector Observation Space Size:** `24`
-- **Use Ray Observations:** ✓ Enabled
-- **Num Rays:** `8`
+4. **Spawn logika:**
+   - Agent sa spawnuje na nahodnej prazdnej pozicii v bludisku
+   - Ciel sa umiestni na najvzdialenjsiu prazdnu poziciu od agenta
+   - Toto zabezpecuje maximalnu narocnost navigacie
 
-## 🔄 Changing Number of Rays
+5. **Debug vizualizacia:**
+   - Ray observacie su vizualizovane v Scene pohlade pocas Play modu
+   - Zeleny luc = ziadna prekazka
+   - Zlty luc = ina prekazka
+   - Cerveny luc = detekovana stena
 
-If you change `Num Rays` in the Agent component, update the observation space:
+## Rychly kontrolny zoznam
 
-| Num Rays | Ray Observations | Total Observations |
-|----------|------------------|-------------------|
+- [ ] Otvor Unity Editor
+- [ ] Vyber Agent GameObject v Hierarchy
+- [ ] Najdi Behavior Parameters v Inspectore
+- [ ] Nastav Vector Observation Space Size na `24` (alebo `8` bez lucov)
+- [ ] Over Behavior Type = `Default`
+- [ ] Over Actions > Discrete Branches = 1, Branch 0 Size = 4
+- [ ] Skontroluj ray nastavenia v Agent skript komponente
+- [ ] Over tagy: steny = "wall", ciel = "goal"
+- [ ] Over Maze komponent (width, height, scale, material)
+- [ ] Uloz scenu (Ctrl+S)
+- [ ] Otestuj spojenie s Pythonom: `python gymnasium_wrapper.py`
+
+## Overenie
+
+### V Unity Editore
+- Vyber Agent GameObject
+- Behavior Parameters > Vector Observation > Space Size = `24`
+- Agent skript ukazuje ray observation nastavenia
+
+### V Pythone
+```bash
+cd python
+python gymnasium_wrapper.py
+```
+Ocakavany vystup:
+```
+Observation space: Box(24,)
+```
+
+### V Unity Scene pohlade (Play mod)
+- Mali by byt viditelne farebne debug luce okolo agenta
+
+## Tabulka konfigurácii
+
+| Konfiguracia | Observation Size | Pouzitie |
+|--------------|------------------|----------|
+| Luče zapnute (default) | `24` | Plna detekcia stien |
+| Luče vypnute | `8` | Jednoduchsie prostredie |
+
+**Zmena poctu lucov:**
+
+| Pocet lucov | Ray observacii | Celkove observacie |
+|-------------|---------------|-------------------|
 | 4 | 8 | 16 |
 | 6 | 12 | 20 |
 | 8 (default) | 16 | 24 |
 | 12 | 24 | 32 |
 | 16 | 32 | 40 |
 
-**Formula:** `Total = 8 (base) + (num_rays × 2)`
+**Vzorec:** `Celkom = 8 (zaklad) + (pocet_lucov x 2)`

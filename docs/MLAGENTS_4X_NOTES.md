@@ -1,217 +1,226 @@
-# ML-Agents 4.x Compatibility Notes
+# ML-Agents 4.x - Poznamky ku kompatibilite
 
-## ✅ What's Updated for ML-Agents 4.x
+## Co je aktualizovane pre ML-Agents 4.x
 
-All files have been updated to work with **Unity ML-Agents 4.0.0** specifically:
+Vsetky subory su kompatibilne s **Unity ML-Agents 4.0.0**.
 
-### Key Changes from Older Versions
+### Klucove zmeny oproti starsim verziam
 
 1. **ActionTuple API**
-   - Old (v1.x): `action_tuple.add_discrete(...)`
-   - New (v4.x): `ActionTuple(discrete=...)`
+   - Stare (v1.x): `action_tuple.add_discrete(...)`
+   - Nove (v4.x): `ActionTuple(discrete=...)`
 
 2. **Observation Specs**
-   - ML-Agents 4.x uses `observation_specs` list
-   - Better handling of multiple observation types
+   - ML-Agents 4.x pouziva `observation_specs` zoznam
+   - Lepsie spracovanie viacerych typov observacii
 
-3. **Python Dependencies**
-   - Requires Python 3.9 - 3.11 (not 3.12+)
-   - Requires numpy < 2.0
-   - Compatible with latest Gymnasium API
+3. **Python zavislosti**
+   - Vyzaduje Python 3.9 - 3.11 (nie 3.12+)
+   - Vyzaduje NumPy < 2.0
+   - Kompatibilne s najnovsim Gymnasium API
 
-## 🚀 Installation
+## Instalacia
 
-### Quick Install (Windows)
+### Manualna instalacia
 ```bash
-install.bat
-```
-
-### Quick Install (Linux/Mac)
-```bash
-chmod +x install.sh
-./install.sh
-```
-
-### Manual Install
-```bash
-# Make sure you have Python 3.9-3.11
+# Over verziu Pythonu (3.9-3.11)
 python --version
 
-# Install PyTorch first (optional but recommended)
+# Instaluj PyTorch (volitelne ale odporucane)
 pip install torch torchvision
 
-# Install all dependencies
+# Instaluj vsetky zavislosti
 pip install -r requirements.txt
 ```
 
-## 🔧 Unity Configuration for ML-Agents 4.x
+## Konfiguracia Unity pre ML-Agents 4.x
 
-### Required Settings in Unity Editor
+### Potrebne nastavenia v Unity Editore
 
-1. **Agent Behavior Parameters Component:**
-   - **Behavior Name**: Any name (e.g., "MazeAgent")
-   - **Behavior Type**: ⚠️ Must be set to **Default** (not Heuristic Only!)
-   - **Vector Observation Space**: 8 (updated for Python reward calculation)
-     - obs[0-1]: Relative goal position (X, Z) - for agent decision making
-     - obs[2-7]: Additional state for Python reward calculation:
-       - obs[2]: Current distance to goal (normalized)
-       - obs[3]: Previous distance to goal (normalized)
-       - obs[4]: Has hit wall (1.0/0.0)
-       - obs[5]: Has reached goal (1.0/0.0)
-       - obs[6]: Time spent in wall collision
-       - obs[7]: Agent velocity magnitude (normalized)
+1. **Behavior Parameters komponent na Agent GameObjecte:**
+   - **Behavior Name**: lubovolne meno (napr. "MazeAgent")
+   - **Behavior Type**: **Default** (nie Heuristic Only!)
+   - **Vector Observation Space Size**: **24** (s ray observaciami) alebo **8** (bez ray observacii)
    - **Actions**:
      - Discrete Branches: 1
-     - Branch 0 Size: 4 (actions: 0=nothing, 1=forward, 2=left, 3=right)
-   - **Model**: Leave empty for training (will be set later)
+     - Branch 0 Size: 4 (akcie: 0=nic, 1=dopredu, 2=vlavo, 3=vpravo)
+   - **Model**: Nechaj prazdne pocas treningu
 
-2. **Decision Requester Component** (should be added automatically):
-   - Decision Period: 5 (or adjust as needed)
-   - Take Actions Between Decisions: Checked
+2. **Decision Requester komponent:**
+   - Decision Period: 5 (alebo podla potreby)
+   - Take Actions Between Decisions: zaciarkni
 
-### Testing the Connection
+### Struktura observacii (24 hodnot s ray observaciami)
+
+**Zakladne observacie (index 0-7):**
+
+| Index | Observacia | Popis | Normalizacia |
+|-------|-----------|-------|--------------|
+| 0 | Relativna pozicia ciela X | Vlavo/vpravo od agenta | / 5.0 |
+| 1 | Relativna pozicia ciela Z | Dopredu/dozadu od agenta | / 5.0 |
+| 2 | Aktualna vzdialenost | Vzdialenost k cielu | / 10.0 |
+| 3 | Predchadzajuca vzdialenost | Predchadzajuca vzdialenost k cielu | / 10.0 |
+| 4 | Kolizia so stenou | 1.0 ak koliduje, 0.0 inak | - |
+| 5 | Dosiahol ciel | 1.0 ak dosiahol, 0.0 inak | - |
+| 6 | Cas v kolizii | Cas straveny v kolizii so stenou | sekundy |
+| 7 | Rychlost | Velkost rychlosti agenta | / 5.0 |
+
+**Ray observacie (index 8-23, pri 8 lucoch):**
+
+Pre kazdy luc `i` (0 az 7):
+
+| Index | Observacia | Rozsah |
+|-------|-----------|--------|
+| 8 + i*2 | Normalizovana vzdialenost k prekazke | 0.0 - 1.0 |
+| 9 + i*2 | Typ prekazky (1.0=stena, 0.5=ine, 0.0=nic) | 0.0, 0.5, 1.0 |
+
+**Vzorec: Total = 8 (zaklad) + (pocet_lucov * 2)**
+
+### Testovanie spojenia
 
 ```bash
-# Test with Unity Editor (Unity must be running with scene open)
+cd python
 python gymnasium_wrapper.py
 ```
 
-You should see:
+Ocakavany vystup:
 ```
 Using behavior: MazeAgent
-Observation space: Box(2,)
+Observation space: Box(24,)
 Action space: Discrete(4)
 Running random agent for 5 episodes...
 ```
 
-## 📊 Training Recommendations for ML-Agents 4.x
+## Odporucania pre trening s ML-Agents 4.x
 
-### For Best Performance:
+### Pre najlepsi vykon:
 
-1. **Build Your Unity Project** (much faster than Editor)
-   - File → Build Settings → Build
-   - Save to `./build/` folder
+1. **Buildni Unity projekt** (ovela rychlejsie nez Editor)
+   - File > Build Settings > Build
 
-2. **Use Time Acceleration**
+2. **Pouzi akceleraciu casu**
    ```python
    env = make_unity_maze_env(
        unity_env_path="./build/MazeAgent.exe",
-       time_scale=20.0  # 20x speed
+       time_scale=20.0  # 20x rychlost
    )
    ```
 
-3. **Use Multiple Parallel Environments** (fastest)
+3. **Pouzi paralelne prostredia** (najrychlejsie)
    ```bash
    python train_sb3.py --algorithm ppo --n-envs 4 --unity-env "./build/MazeAgent.exe"
    ```
 
-4. **Monitor with TensorBoard**
+4. **Sleduj s TensorBoardom**
    ```bash
    tensorboard --logdir ./models/logs
    ```
 
-## 🐛 Common Issues with ML-Agents 4.x
+## Caste problemy s ML-Agents 4.x
 
-### Issue: "No behavior specs found"
-**Solution:**
-- Make sure Unity is running
-- Check Behavior Type is set to **Default** (not Heuristic Only)
-- Verify agent has Behavior Parameters component
+### "No behavior specs found"
+- Uisti sa, ze Unity bezi
+- Skontroluj Behavior Type = **Default** (nie Heuristic Only)
+- Over, ze agent ma Behavior Parameters komponent
 
-### Issue: "numpy 2.0 not compatible"
-**Solution:**
+### "numpy 2.0 not compatible"
 ```bash
 pip install "numpy<2.0"
 ```
 
-### Issue: Python 3.12 installation fails
-**Solution:**
-- Use Python 3.9, 3.10, or 3.11
-- ML-Agents 4.x doesn't support Python 3.12+ yet
+### Python 3.12 instalacia zlyhava
+- Pouzi Python 3.9, 3.10, alebo 3.11
+- ML-Agents 4.x este nepodporuje Python 3.12+
 
-### Issue: Port already in use
-**Solution:**
+### Port uz sa pouziva
 ```python
-# Use different worker_id
-env = make_unity_maze_env(worker_id=1)  # Try 1, 2, 3, etc.
+env = make_unity_maze_env(worker_id=1)  # Skus 1, 2, 3, atd.
 ```
 
-### Issue: Training is slow
-**Solutions:**
-1. Build Unity project instead of using Editor
-2. Set `no_graphics=True`
-3. Increase `time_scale` (e.g., 20.0)
-4. Use multiple parallel environments
+### Trening je pomaly
+1. Buildni Unity projekt namiesto pouzivania Editora
+2. Nastav `no_graphics=True`
+3. Zvys `time_scale` (napr. 20.0)
+4. Pouzi paralelne prostredia
 
-## 📦 Package Versions (Tested and Working)
+### Observation space mismatch pri nacitani modelu
+- Model natrenovany s inou velkostou observation space nie je kompatibilny
+- Skontroluj ci ray observacie su zapnute/vypnute rovnako ako pri treningu
+- S ray: 24 observacii, bez ray: 8 observacii
+
+## Verzie balikov (pouzivane v projekte)
+
+Aktualne verzie v `requirements.txt`:
 
 ```
-mlagents==4.0.0
-mlagents-envs==4.0.0
-gymnasium>=0.29.0
-stable-baselines3>=2.0.0
-numpy>=1.21.0,<2.0.0
-protobuf>=3.20.0,<5.0.0
-torch>=1.13.0
+gymnasium==1.2.2
+mlagents_envs==1.2.0.dev0
+numpy==1.23.5
+stable_baselines3==2.7.0
 ```
 
-## 🎯 Example Training Commands
+Unity strana:
+```
+com.unity.ml-agents: 4.0.0
+Unity: 6000.2.6f2
+```
 
-### Basic Training (with Unity Editor)
+**Poznamka:** Python balicek `mlagents_envs==1.2.0.dev0` je kompatibilny s Unity ML-Agents package 4.0.0. Verzie nemusia mat rovnake cisla - dolezita je kompatibilita komunikacneho protokolu.
+
+## Priklady trenovacich prikazov
+
+### Zakladny trening (s Unity Editorom)
 ```bash
 python train_sb3.py --algorithm ppo --timesteps 500000
 ```
-"""
-python train_sb3.py --algorithm ppo --model-path ./models/checkpoints/ppo_maze_10000_steps.zip
-"""
-### Fast Training (with Build)
+
+### Pokracovanie treningu z checkpointu
+```bash
+python train_sb3.py --algorithm ppo --timesteps 200000 --model-path ./models/checkpoints/ppo_maze_100000_steps.zip
+```
+
+### Rychly trening (s buildom)
 ```bash
 python train_sb3.py --algorithm ppo --timesteps 1000000 --unity-env "./build/MazeAgent.exe"
 ```
 
-### Fastest Training (Build + Multiple Envs)
+### Najrychlejsi trening (build + paralelne prostredia)
 ```bash
 python train_sb3.py --algorithm ppo --timesteps 1000000 --n-envs 4 --unity-env "./build/MazeAgent.exe"
 ```
 
-### Evaluation
+### Evaluacia
 ```bash
-python train_sb3.py --mode evaluate --model-path "./models/ppo_maze_final.zip"
+python train_sb3.py --mode evaluate --model-path "./models/checkpoints/ppo_maze_500000_steps.zip"
 ```
 
-## 📝 Code Example
+### Vizualizacia
+```bash
+python watch_agent.py --model ./models/checkpoints/ppo_maze_500000_steps.zip --episodes 5
+```
+
+## Priklad kodu
 
 ```python
 from gymnasium_wrapper import make_unity_maze_env
 from stable_baselines3 import PPO
 
-# Create ML-Agents 4.x environment
 env = make_unity_maze_env(
-    unity_env_path="./build/MazeAgent.exe",  # or None for Editor
+    unity_env_path="./build/MazeAgent.exe",
     worker_id=0,
     no_graphics=True,
     time_scale=20.0
 )
 
-# Create and train PPO model
 model = PPO("MlpPolicy", env, verbose=1)
 model.learn(total_timesteps=500000)
-
-# Save model
 model.save("ppo_maze_model")
-
-# Close environment
 env.close()
 ```
 
-## 🔗 Useful Links
+## Uzitocne linky
 
 - [Unity ML-Agents GitHub](https://github.com/Unity-Technologies/ml-agents)
-- [ML-Agents 4.x Release Notes](https://github.com/Unity-Technologies/ml-agents/releases)
+- [ML-Agents Release Notes](https://github.com/Unity-Technologies/ml-agents/releases)
 - [Stable-Baselines3 Docs](https://stable-baselines3.readthedocs.io/)
 - [Gymnasium Documentation](https://gymnasium.farama.org/)
-
----
-
-**Last Updated:** Compatible with ML-Agents 4.0.0
-

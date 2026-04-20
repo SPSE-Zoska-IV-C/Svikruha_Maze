@@ -66,7 +66,7 @@ public class agent : Agent
         _renderer.material.color = Color.blue;
 
         // Regenerate maze every 1000 episodes for better generalization
-        if (_maze != null && _currentEpisode % 2000 == 0)
+        if (_maze != null && _currentEpisode % 3000 == 0)
         {
             Debug.Log($"Regenerating maze at episode {_currentEpisode}");
             _maze.RegenerateMaze();

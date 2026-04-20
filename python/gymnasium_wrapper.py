@@ -32,7 +32,7 @@ class UnityMazeGymWrapper(gym.Env):
         no_graphics (bool): Run Unity without graphics (faster training, default: True).
         time_scale (float): Unity time scale (higher = faster, default: 20.0).
         max_steps (int): Maximum steps per episode (default: None, uses Unity setting).
-        base_port (int): Base port for ML-Agents communication (default: 5005).
+        base_port (int): Base port for ML-Agents communication (default: 5004).
     """
 
     metadata = {"render_modes": ["rgb_array"]}
@@ -410,7 +410,7 @@ def make_unity_maze_env(
         no_graphics (bool): Run without graphics for faster training.
         time_scale (float): Speed up Unity simulation.
         max_steps (int): Override max steps per episode.
-        base_port (int): Base port for ML-Agents communication (default: 5005).
+        base_port (int): Base port for ML-Agents communication (default: 5004).
 
     Returns:
         UnityMazeGymWrapper: Gymnasium-compatible environment.
